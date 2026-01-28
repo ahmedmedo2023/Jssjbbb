@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Worksheet Maker V6 - Smart Auto-Fill</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700&family=Tajawal:wght@400;700&family=Reem+Kufi:wght@400;700&display=swap" rel="stylesheet">
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+    :root {
+        --primary: #2c3e50;
+        --accent: #2980b9;
+        --bg-body: #f4f6f7;
+        /* ألوان الأعمدة المميزة */
+        --col-1-bg: #eafaf1; /* أخضر فاتح جداً */
+        --col-3-bg: #ebf5fb; /* أزرق فاتح جداً */
+        /* إعدادات التنسيق الافتراضي */
+        --current-color: #000000;
+        --current-size: 18px;
+        --current-font: 'Cairo', sans-serif;
+        --current-weight: normal;
+    }
+
+    body {
+        margin: 0; background: var(--bg-body);
+        font-family: 'Cairo', sans-serif;
+        padding-top: 200px; padding-bottom: 60px;
+        overflow-x: hidden;
+    }
+
+    /* --- شريط التحكم --- */
+    .controls-wrapper {
+        position: fixed; top: 0; left: 0; right: 0;
+        z-index: 1000; background: #fff;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    }
+    .row-tool {
+        padding: 8px; display: flex; flex-wrap: wrap; gap: 6px;
+        justify-content: center; align-items: center; border-bottom: 1px solid #eee;
+    }
+    
+    button, select {
+        padding: 8px 10px; border: 1px solid #ddd; border-radius: 8px;
+        font-family: 'Cairo'; font-size: 13px; background: #fff;
+        min-height: 38px; cursor: pointer;
+    }
+    .btn-blue { background: #3498db; color: #fff; border:none; }
+    .btn-green { background: #27ae60; color: #fff; border:none; }
+    .btn-red { background: #e74c3c; color: #fff; border:none; }
+
+    /* أزرار الألوان */
+    .color-btn {
+        width: 32px; height: 32px; border-radius: 50%; border: 2px solid #eee;
+        cursor: pointer; position: relative;
+    }
+    .color-btn.active { border-color: #333; transform: scale(1.1); }
+    .color-btn.active::after {
+        content: '✔'; position: absolute; top: 50%; left: 50%;
+        transform: translate(-50%, -50%); color: #fff; font-size: 12px;
+        text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+    }
+
+    /* --- الورقة --- */
+    #zoom-container {
+        transform-origin: top center; transition: transform 0.2s;
+        margin-top: 15px; display: flex; justify-content: center;
+    }
+
+    .page {
+        width: 210mm; min-height: 297mm;
+        background: #fff; padding: 15mm; margin-bottom: 30px;
+        box-shadow: 0 5px 25px rgba(0,0,0,0.1);
+        position: relative; overflow: hidden;
+        display: flex; flex-direction: column;
+    }
+
+    /* الكتابة */
+    [contenteditable] { outline: none; min-height: 1.2em; }
+    [contenteditable]:focus { background: rgba(52, 152, 219, 0.05); border-radius: 4px; }
+
+    /* الهيكل */
+    .header {
+        background: var(--primary); color: #fff; padding: 12px;
+        text-align: center; font-size: 26px; font-weight: 700; border-radius: 8px; margin-bottom: 20px;
+    }
+    .info-row { display: flex; justify-content: center; gap: 15px; margin-bottom: 20px; }
+    .pill {
+        background: #f8f9f9; padding: 6px 25px; border-radius: 25px;
+        font-weight: 700; border: 1px solid #bdc3c7; min-width: 90px; text-align: center;
+    }
+    .subtitle {
+        border-right: 6px solid #1abc9c; background: linear-gradient(90deg, #eafaf1, #fff);
+        padding: 8px 20px; margin: 15px 0; font-size: 20px; font-weight: 700; color: var(--primary);
+        border-radius: 4px;
+    }
+
+    /* الجدول الملون */
+    .grid {
+        display: grid; grid-template-columns: repeat(4, 1fr);
+        border: 2px solid var(--primary); border-radius: 10px; overflow: hidden; margin-bottom: 20px;
+    }
+    .cell {
+        border-bottom: 1px solid #bdc3c7; border-left: 1px solid #bdc3c7;
+        min-height: 48px; padding: 4px;
+        display: flex; align-items: center; justify-content: center;
+        text-align: center; word-break: break-word;
+        background: #fff; /* الافتراضي */
+    }
+    .cell:nth-child(4n) { border-left: none; }
+    
+    /* تلوين الأعمدة المميز (طلبك رقم 2) */
+    .cell:nth-child(4n + 1) { background-color: var(--col-1-bg); } /* العمود 1 */
+    .cell:nth-child(4n + 3) { background-color: var(--col-3-bg); } /* العمود 3 */
+
+    /* العناصر السفلية */
+    .circles { display: flex; gap: 12px; margin-bottom: 20px; }
+    .circle-item {
+        flex: 1; height: 45px; background: #fff; border: 2px solid #1abc9c;
+        border-radius: 30px; display: flex; align-items: center; justify-content: center; font-weight: bold;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    .boxes { display: flex; gap: 15px; min-height: 120px; }
+    .box { border: 2px solid var(--primary); border-radius: 10px; padding: 12px; }
+
+    /* الفوتر الجديد (طلبك رقم 3 و 4) */
+    .footer {
+        margin-top: auto; /* يدفع الفوتر للأسفل */
+        padding-top: 15px; border-top: 3px solid #eee;
+        display: flex; justify-content: space-between; align-items: flex-end;
+        position: relative;
+    }
+    
+    .teacher-info { font-size: 14px; color: #555; font-weight: 600; }
+    
+    /* الترقيم في المنتصف */
+    .page-number-container {
+        position: absolute; left: 50%; bottom: 5px; transform: translateX(-50%);
+        background: #fff; padding: 5px 15px; border-radius: 15px; border: 1px solid #ddd;
+        font-weight: bold; color: var(--primary);
+    }
+
+    /* دائرة الدرجة المحسنة */
+    .score-wrapper {
+        display: flex; flex-direction: column; align-items: center;
+    }
+    .score {
+        width: 80px; height: 80px; /* تكبير الحجم */
+        border: 4px double #c0392b; /* حدود مزدوجة */
+        border-radius: 50%;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        transform: rotate(-15deg); /* ميلان */
+        color: #c0392b; background: #fff;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
+        font-size: 22px; font-weight: bold;
+    }
+    .score-label { font-size: 12px; margin-bottom: 2px; text-transform: uppercase; letter-spacing: 1px; }
+
+    /* نافذة التوزيع */
+    #bulkPopup {
+        display: none; position: fixed; top: 150px; left: 50%; transform: translateX(-50%);
+        width: 90%; max-width: 450px; background: #fff; padding: 25px;
+        border-radius: 15px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); z-index: 2000;
+        border: 3px solid var(--accent);
+    }
+
+    @media print {
+        .controls-wrapper, #bulkPopup { display: none !important; }
+        body { padding: 0; background: #fff; }
+        #zoom-container { transform: none !important; margin: 0; display: block; }
+        .page { margin: 0; box-shadow: none; width: 100%; page-break-after: always; height: auto; }
+        .grid { border-width: 1px; } 
+    }
+</style>
+</head>
+<body>
+
+<div class="controls-wrapper">
+    <div class="row-tool">
+        <select id="rowCount" onchange="updateRows(this.value)">
+            <option value="5">5 صفوف</option>
+            <option value="9">9 صفوف</option>
+            <option value="11" selected>11 صف</option>
+            <option value="13">13 صف</option>
+        </select>
+        
+        <button class="btn-blue" onclick="addPage(true)">➕ صفحة</button>
+        <button onclick="copyPage()">🔁 نسخ</button>
+        <button class="btn-red" onclick="delPage()">🗑️ حذف</button>
+        
+        <button class="btn-green" onclick="toggleBulk()">📝 توزيع ذكي</button>
+        <button class="btn-blue" onclick="savePDF()">📄 PDF</button>
+    </div>
+
+    <div class="row-tool" style="background:#fff">
+        <span style="font-size:12px; color:#888; margin-left:5px">الإعدادات:</span>
+        <select id="globalFont" onchange="setGlobal('font', this.value)">
+            <option value="'Cairo', sans-serif">Cairo</option>
+            <option value="'Tajawal', sans-serif">Tajawal</option>
+            <option value="'Amiri', serif">Amiri</option>
+            <option value="'Reem Kufi', sans-serif">Kufi</option>
+        </select>
+
+        <select id="globalSize" onchange="setGlobal('size', this.value)">
+            <option value="16px">16</option>
+            <option value="18px" selected>18</option>
+            <option value="20px">20</option>
+            <option value="24px">24</option>
+        </select>
+
+        <button id="btnBold" onclick="setGlobal('bold')" style="font-weight:bold">B</button>
+
+        <div class="color-btn active" style="background:#000" onclick="setGlobal('color', '#000000', this)"></div>
+        <div class="color-btn" style="background:#c0392b" onclick="setGlobal('color', '#c0392b', this)"></div>
+        <div class="color-btn" style="background:#2980b9" onclick="setGlobal('color', '#2980b9', this)"></div>
+        <div class="color-btn" style="background:#27ae60" onclick="setGlobal('color', '#27ae60', this)"></div>
+    </div>
+</div>
+
+<div id="bulkPopup">
+    <h3 style="margin-top:0; color:var(--primary)">التوزيع التلقائي (Auto-Fill)</h3>
+    <p style="font-size:12px; color:#666">سيقوم النظام بإنشاء صفحات جديدة تلقائياً إذا انتهت المساحة.</p>
+    <textarea id="bulkTxt" rows="6" style="width:100%; font-family:'Cairo'; padding:10px; border-radius:8px; border:1px solid #ccc" placeholder="الصق الكلمات هنا..."></textarea>
+    <div style="margin-top:15px; display:flex; gap:10px; justify-content:space-between">
+        <select id="bulkCol" style="flex:1">
+            <option value="0">العمود 1 (الأخضر)</option>
+            <option value="1">العمود 2</option>
+            <option value="2">العمود 3 (الأزرق)</option>
+            <option value="3">العمود 4</option>
+        </select>
+        <button class="btn-green" style="flex:1" onclick="runSmartBulk()">🚀 ابدأ</button>
+        <button class="btn-red" onclick="toggleBulk()">إغلاق</button>
+    </div>
+</div>
+
+<div id="zoom-container">
+    <div id="doc-area">
+        
+        <div class="page sheet">
+            <div class="header" contenteditable="true">عنوان الدرس / المادة</div>
+            
+            <div class="info-row">
+                <div class="pill" contenteditable="true">Unit 1</div>
+                <div class="pill" contenteditable="true">Lesson 1</div>
+            </div>
+
+            <div class="subtitle" contenteditable="true">Key Vocabulary</div>
+            
+            <div class="grid"></div> <div class="subtitle" contenteditable="true">Grammar & Notes</div>
+
+            <div class="circles">
+                <div class="circle-item" contenteditable="true">Note</div>
+                <div class="circle-item" contenteditable="true">Note</div>
+                <div class="circle-item" contenteditable="true">Note</div>
+                <div class="circle-item" contenteditable="true">Note</div>
+            </div>
+
+            <div class="boxes">
+                <div class="box" style="width:30%" contenteditable="true">Notes</div>
+                <div class="box" style="flex:1; background:#f9f9f9" contenteditable="true">Sentences</div>
+            </div>
+
+            <div class="footer">
+                <div class="teacher-info" contenteditable="true">أ. محمد</div>
+                
+                <div class="page-number-container" contenteditable="true">Page 1</div>
+
+                <div class="score-wrapper">
+                    <div class="score">
+                        <span class="score-label">Score</span>
+                        <div contenteditable="true">/10</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    // --- إعدادات التنسيق العامة ---
+    let style = { color: '#000000', size: '18px', font: "'Cairo', sans-serif", weight: 'normal' };
+    let rowsNum = 11;
+
+    function setGlobal(prop, val, btn) {
+        if(prop === 'color') {
+            style.color = val;
+            document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('active'));
+            if(btn) btn.classList.add('active');
+        }
+        if(prop === 'size') style.size = val;
+        if(prop === 'font') style.font = val;
+        if(prop === 'bold') {
+            style.weight = (style.weight === 'normal') ? 'bold' : 'normal';
+            document.getElementById('btnBold').style.background = (style.weight === 'bold') ? '#ddd' : '#fff';
+        }
+    }
+
+    // تطبيق التنسيق عند اللمس/الكتابة
+    document.addEventListener('focusin', function(e) {
+        if (e.target.isContentEditable) {
+            e.target.style.color = style.color;
+            e.target.style.fontSize = style.size;
+            e.target.style.fontFamily = style.font;
+            e.target.style.fontWeight = style.weight;
+        }
+    });
+
+    // --- بناء الجدول ---
+    function buildGrid(sheet, keepData = true) {
+        const grid = sheet.querySelector('.grid');
+        let saved = [];
+        if(keepData) {
+            sheet.querySelectorAll('.cell').forEach(c => saved.push({h: c.innerHTML, s: c.getAttribute('style')}));
+        }
+        grid.innerHTML = "";
+        for(let i=0; i<rowsNum; i++) {
+            for(let c=0; c<4; c++) {
+                let div = document.createElement('div');
+                div.className = 'cell';
+                div.contentEditable = true;
+                let idx = (i*4) + c;
+                if(keepData && saved[idx]) {
+                    div.innerHTML = saved[idx].h;
+                    if(saved[idx].s) div.setAttribute('style', saved[idx].s);
+                } else {
+                    // تطبيق التنسيق الافتراضي للخلايا الجديدة
+                    div.style.color = style.color;
+                    div.style.fontSize = style.size;
+                    div.style.fontFamily = style.font;
+                    div.style.fontWeight = style.weight;
+                }
+                grid.appendChild(div);
+            }
+        }
+    }
+
+    // تهيئة أول مرة
+    buildGrid(document.querySelector('.sheet'), false);
+
+    function updateRows(val) {
+        rowsNum = parseInt(val);
+        document.querySelectorAll('.sheet').forEach(s => buildGrid(s, true));
+    }
+
+    // --- إدارة الصفحات والترقيم ---
+    function addPage(scrollToIt = false) {
+        const area = document.getElementById('doc-area');
+        const clone = area.firstElementChild.cloneNode(true);
+        
+        // تنظيف المحتوى
+        clone.querySelectorAll('.cell').forEach(c => {
+            c.innerText = "";
+            c.style.color = style.color; c.style.fontSize = style.size; c.style.fontFamily = style.font;
+        });
+        
+        area.appendChild(clone);
+        updatePageNumbers();
+        if(scrollToIt) {
+            setTimeout(() => {
+                clone.scrollIntoView({behavior:'smooth'});
+                fitZoom();
+            }, 100);
+        }
+        return clone; // إرجاع الصفحة الجديدة لاستخدامها في التوزيع
+    }
+
+    function copyPage() {
+        const area = document.getElementById('doc-area');
+        // في هذا الإصدار ننسخ آخر صفحة أو الصفحة الظاهرة، للتبسيط سننسخ الصفحة الأخيرة
+        const src = area.lastElementChild; 
+        const clone = src.cloneNode(true);
+        area.appendChild(clone);
+        updatePageNumbers();
+        clone.scrollIntoView({behavior:'smooth'});
+    }
+
+    function delPage() {
+        const area = document.getElementById('doc-area');
+        if(area.children.length === 1) return alert("يجب أن تبقى صفحة واحدة على الأقل");
+        if(confirm("حذف آخر صفحة؟")) {
+            area.lastElementChild.remove();
+            updatePageNumbers();
+        }
+    }
+
+    function updatePageNumbers() {
+        const sheets = document.querySelectorAll('.sheet');
+        sheets.forEach((s, i) => {
+            // نحدث الرقم فقط، ولا نمسح ما كتبه المستخدم بالكامل إذا أردنا
+            // لكن لضمان التسلسل الصحيح سنعيد كتابة الرقم
+            // يمكن للمستخدم تعديله بعد ذلك
+            const numBox = s.querySelector('.page-number-container');
+            // نحتفظ بالنص إذا كان المستخدم قد عدل الصيغة (مثلا "صفحة 1")
+            // للتبسيط، سنجعله يعيد الترقيم تلقائياً
+            numBox.innerText = "Page " + (i+1);
+        });
+    }
+
+    // --- التوزيع الذكي المتعدد الصفحات (طلبك رقم 1) ---
+    function toggleBulk() {
+        const p = document.getElementById('bulkPopup');
+        p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+    }
+
+    function runSmartBulk() {
+        const txt = document.getElementById('bulkTxt').value;
+        const words = txt.split('\n').filter(w => w.trim());
+        const col = parseInt(document.getElementById('bulkCol').value);
+        
+        if(words.length === 0) return alert("أدخل كلمات أولاً");
+
+        let wordIndex = 0;
+        const sheets = document.querySelectorAll('.sheet');
+        
+        // 1. التوزيع على الصفحات الموجودة أولاً
+        sheets.forEach(sheet => {
+            const cells = sheet.querySelectorAll('.cell');
+            for(let i=0; i<cells.length; i++) {
+                if(wordIndex < words.length && i % 4 === col && cells[i].innerText.trim() === "") {
+                    fillCell(cells[i], words[wordIndex]);
+                    wordIndex++;
+                }
+            }
+        });
+
+        // 2. إذا بقي كلمات، أنشئ صفحات جديدة واملأها
+        while(wordIndex < words.length) {
+            const newSheet = addPage(false); // false = لا تقم بالتمرير الآن
+            const cells = newSheet.querySelectorAll('.cell');
+            for(let i=0; i<cells.length; i++) {
+                if(wordIndex < words.length && i % 4 === col) {
+                    fillCell(cells[i], words[wordIndex]);
+                    wordIndex++;
+                }
+            }
+        }
+
+        toggleBulk();
+        alert("تم التوزيع! تم إنشاء صفحات جديدة تلقائياً.");
+        fitZoom();
+    }
+
+    function fillCell(cell, text) {
+        cell.innerText = text;
+        cell.style.color = style.color;
+        cell.style.fontSize = style.size;
+        cell.style.fontFamily = style.font;
+        cell.style.fontWeight = style.weight;
+    }
+
+    // --- التجاوب ---
+    function fitZoom() {
+        const wrap = document.getElementById('zoom-container');
+        const w = window.innerWidth;
+        if(w < 820) {
+            const scale = (w / 820) * 0.96;
+            wrap.style.transform = `scale(${scale})`;
+            const h = document.getElementById('doc-area').offsetHeight;
+            wrap.style.height = (h * scale) + "px";
+        } else {
+            wrap.style.transform = "none";
+            wrap.style.height = "auto";
+        }
+    }
+    window.addEventListener('resize', fitZoom);
+    window.addEventListener('load', fitZoom);
+
+    // --- PDF ---
+    async function savePDF() {
+        const wrap = document.getElementById('zoom-container');
+        const t = wrap.style.transform;
+        wrap.style.transform = "none";
+        
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('p', 'mm', 'a4');
+        const sheets = document.querySelectorAll('.sheet');
+        const btn = document.querySelector('.btn-blue:last-child');
+        
+        btn.innerText = "جاري الحفظ...";
+
+        for(let i=0; i<sheets.length; i++) {
+            if(i>0) doc.addPage();
+            const canvas = await html2canvas(sheets[i], { scale: 2, useCORS: true });
+            doc.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 210, 297);
+        }
+        
+        doc.save('worksheets_v6.pdf');
+        btn.innerText = "📄 PDF";
+        wrap.style.transform = t;
+        fitZoom();
+    }
+</script>
+
+</body>
+</html>
